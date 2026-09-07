@@ -16,6 +16,12 @@ const cors = require('cors');
 
 //express app
 const app = express();
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "HYI Backend API is running successfully",
+  });
+});
 app.use(
   cors({
     origin: '*',
@@ -52,6 +58,7 @@ mongoose
       console.log('connecting the db and listening on port ', process.env.PORT);
     });
   })
+  
   .catch((error) => {
     console.log(error);
   });
