@@ -1,8 +1,9 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const DEFAULT_LIMITS = {
   featuredBlogs: 6,
   featuredJobseekers: 12,
+  latestBlogs: 10,
 };
 
 const getDatabase = () => {
@@ -14,22 +15,27 @@ const getDatabase = () => {
 };
 
 const getCollection = (environmentKey, fallbackName) => {
-  const collectionName = process.env[environmentKey] || fallbackName;
+  const collectionName =
+    process.env[environmentKey] || fallbackName;
+
   return getDatabase().collection(collectionName);
 };
 
 const getLimit = (value, fallback) => {
   const parsedValue = Number.parseInt(value, 10);
 
-  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+  if (
+    !Number.isFinite(parsedValue) ||
+    parsedValue < 1
+  ) {
     return fallback;
   }
 
   return Math.min(parsedValue, 50);
 };
 
-// Include documents without a publication flag, but exclude documents that are
-// explicitly disabled or saved as drafts.
+// Include documents without a publication flag,
+// but exclude documents explicitly disabled or drafts.
 const publicContentFilter = {
   $and: [
     {
@@ -40,12 +46,25 @@ const publicContentFilter = {
       ],
     },
     {
-      $or: [{ active: { $exists: false } }, { active: true }, { active: 1 }],
+      $or: [
+        { active: { $exists: false } },
+        { active: true },
+        { active: 1 },
+      ],
     },
     {
       $or: [
         { status: { $exists: false } },
-        { status: { $in: [1, 'active', 'published', 'Published'] } },
+        {
+          status: {
+            $in: [
+              1,
+              'active',
+              'published',
+              'Published',
+            ],
+          },
+        },
       ],
     },
   ],
@@ -60,7 +79,11 @@ const featuredFilter = {
   ],
 };
 
-const getAllRolePages = async (req, res) => {
+// ======================================================
+// ROLE PAGES
+// ======================================================
+
+export const getAllRolePages = async (req, res) => {
   try {
     const rolePagesCollection = getCollection(
       'ROLE_PAGES_COLLECTION',
@@ -68,15 +91,23 @@ const getAllRolePages = async (req, res) => {
     );
 
     const rolePages = await rolePagesCollection
-      .find(publicContentFilter, { projection: { __v: 0 } })
-      .sort({ navOrder: 1, order: 1, createdAt: -1 })
+      .find(publicContentFilter, {
+        projection: { __v: 0 },
+      })
+      .sort({
+        navOrder: 1,
+        order: 1,
+        createdAt: -1,
+      })
       .toArray();
 
-    // The website Header component calls response.map(), so this endpoint must
-    // return the array directly rather than wrapping it in a data property.
     return res.status(200).json(rolePages);
   } catch (error) {
-    console.error('Unable to fetch role pages:', error);
+    console.error(
+      'Unable to fetch role pages:',
+      error,
+    );
+
     return res.status(500).json({
       message: 'Unable to fetch role pages',
       error: error.message,
@@ -84,13 +115,25 @@ const getAllRolePages = async (req, res) => {
   }
 };
 
-const getFeaturedJobseekers = async (req, res) => {
+// ======================================================
+// FEATURED JOBSEEKERS
+// ======================================================
+
+export const getFeaturedJobseekers = async (
+  req,
+  res,
+) => {
   try {
-    const limit = getLimit(req.query.limit, DEFAULT_LIMITS.featuredJobseekers);
+    const limit = getLimit(
+      req.query.limit,
+      DEFAULT_LIMITS.featuredJobseekers,
+    );
+
     const jobseekersCollection = getCollection(
       'JOBSEEKERS_COLLECTION',
       'jobseekers',
     );
+
     const publicProjection = {
       __v: 0,
       email: 0,
@@ -100,60 +143,116 @@ const getFeaturedJobseekers = async (req, res) => {
 
     let jobseekers = await jobseekersCollection
       .find(
-        { $and: [publicContentFilter, featuredFilter] },
-        { projection: publicProjection },
+        {
+          $and: [
+            publicContentFilter,
+            featuredFilter,
+          ],
+        },
+        {
+          projection: publicProjection,
+        },
       )
-      .sort({ featuredOrder: 1, updatedAt: -1, createdAt: -1 })
+      .sort({
+        featuredOrder: 1,
+        updatedAt: -1,
+        createdAt: -1,
+      })
       .limit(limit)
       .toArray();
 
-    // Older local databases do not have an isFeatured/featured field. In that
-    // case, use the newest public profiles so the homepage remains usable.
     if (jobseekers.length === 0) {
       jobseekers = await jobseekersCollection
-        .find(publicContentFilter, { projection: publicProjection })
-        .sort({ updatedAt: -1, createdAt: -1 })
+        .find(publicContentFilter, {
+          projection: publicProjection,
+        })
+        .sort({
+          updatedAt: -1,
+          createdAt: -1,
+        })
         .limit(limit)
         .toArray();
     }
 
-    return res.status(200).json({ data: jobseekers });
+    return res.status(200).json({
+      data: jobseekers,
+    });
   } catch (error) {
-    console.error('Unable to fetch featured jobseekers:', error);
+    console.error(
+      'Unable to fetch featured jobseekers:',
+      error,
+    );
+
     return res.status(500).json({
-      message: 'Unable to fetch featured jobseekers',
+      message:
+        'Unable to fetch featured jobseekers',
       error: error.message,
     });
   }
 };
 
-const getFeaturedBlogs = async (req, res) => {
+// ======================================================
+// FEATURED BLOGS
+// ======================================================
+
+export const getFeaturedBlogs = async (
+  req,
+  res,
+) => {
   try {
-    const limit = getLimit(req.query.limit, DEFAULT_LIMITS.featuredBlogs);
-    const blogsCollection = getCollection('BLOGS_COLLECTION', 'blogs');
+    const limit = getLimit(
+      req.query.limit,
+      DEFAULT_LIMITS.featuredBlogs,
+    );
+
+    const blogsCollection = getCollection(
+      'BLOGS_COLLECTION',
+      'blogs',
+    );
 
     let blogs = await blogsCollection
       .find(
-        { $and: [publicContentFilter, featuredFilter] },
-        { projection: { __v: 0 } },
+        {
+          $and: [
+            publicContentFilter,
+            featuredFilter,
+          ],
+        },
+        {
+          projection: { __v: 0 },
+        },
       )
-      .sort({ featuredOrder: 1, publishedAt: -1, createdAt: -1 })
+      .sort({
+        featuredOrder: 1,
+        publishedAt: -1,
+        createdAt: -1,
+      })
       .limit(limit)
       .toArray();
 
-    // Match the website's expected behavior even when older blog documents do
-    // not yet contain a featured flag.
+    // Older DB fallback
     if (blogs.length === 0) {
       blogs = await blogsCollection
-        .find(publicContentFilter, { projection: { __v: 0 } })
-        .sort({ publishedAt: -1, createdAt: -1 })
+        .find(publicContentFilter, {
+          projection: { __v: 0 },
+        })
+        .sort({
+          publishedAt: -1,
+          createdAt: -1,
+        })
         .limit(limit)
         .toArray();
     }
 
-    return res.status(200).json({ data: blogs });
+    return res.status(200).json({
+      data: blogs,
+    });
   } catch (error) {
-    console.error('Unable to fetch featured blogs:', error);
+    console.error(
+      'Unable to fetch featured blogs:',
+      error,
+    );
+
     return res.status(500).json({
       message: 'Unable to fetch featured blogs',
       error: error.message,
@@ -161,8 +260,89 @@ const getFeaturedBlogs = async (req, res) => {
   }
 };
 
-module.exports = {
-  getAllRolePages,
-  getFeaturedJobseekers,
-  getFeaturedBlogs,
+// ======================================================
+// LATEST / ALL BLOGS
+// ======================================================
+
+export const getLatestBlogs = async (
+  req,
+  res,
+) => {
+  try {
+    const parsedPage = Number.parseInt(
+      req.query.page,
+      10,
+    );
+
+    const page =
+      Number.isFinite(parsedPage) &&
+      parsedPage > 0
+        ? parsedPage
+        : 1;
+
+    const limit = getLimit(
+      req.query.limit,
+      DEFAULT_LIMITS.latestBlogs,
+    );
+
+    const skip = (page - 1) * limit;
+
+    const blogsCollection = getCollection(
+      'BLOGS_COLLECTION',
+      'blogs',
+    );
+
+    const total =
+      await blogsCollection.countDocuments(
+        publicContentFilter,
+      );
+
+    const blogs = await blogsCollection
+      .find(publicContentFilter, {
+        projection: {
+          __v: 0,
+        },
+      })
+      .sort({
+        publishedAt: -1,
+        createdAt: -1,
+        updatedAt: -1,
+      })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    const totalPages =
+      total > 0
+        ? Math.ceil(total / limit)
+        : 0;
+
+    return res.status(200).json({
+      pagination: {
+        data: blogs,
+        limit,
+        page,
+        total,
+        totalPages,
+      },
+    });
+  } catch (error) {
+    console.error(
+      'Unable to fetch latest blogs:',
+      error,
+    );
+
+    return res.status(500).json({
+      message: 'Unable to fetch latest blogs',
+      error: error.message,
+
+      pagination: {
+        data: [],
+        limit: DEFAULT_LIMITS.latestBlogs,
+        page: 1,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+  }
 };

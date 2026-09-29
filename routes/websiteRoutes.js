@@ -159,6 +159,7 @@ const {
   getAllRolePages,
   getFeaturedJobseekers,
   getFeaturedBlogs,
+  getLatestBlogs,
 } = require('../controller/websiteController');
 
 const {
@@ -167,6 +168,7 @@ const {
   getDegrees,
   getLanguages,
   getSkills,
+ 
 } = require('../controller/masterDataController');
 
 const router = express.Router();
@@ -229,6 +231,10 @@ router.get(
 | COUNTRY SEARCH
 |--------------------------------------------------------------------------
 */
+router.get(
+  "/va/designation-page",
+  getDesignations
+);
 
 router.get('/get-countries', (req, res) => {
   try {
@@ -286,6 +292,68 @@ router.get('/get-countries', (req, res) => {
         'development'
           ? error.message
           : undefined,
+    });
+  }
+});
+
+
+
+/*
+|--------------------------------------------------------------------------
+| TIMEZONE SEARCH
+|--------------------------------------------------------------------------
+*/
+
+router.get("/get-timezones", (req, res) => {
+  try {
+    const search = String(
+      req.query.q || ""
+    )
+      .toLowerCase()
+      .trim();
+
+    const limit = Math.min(
+      Math.max(
+        parseInt(req.query.limit, 10) || 50,
+        1
+      ),
+      200
+    );
+
+    let timeZones =
+      Intl.supportedValuesOf("timeZone");
+
+    if (search) {
+      timeZones = timeZones.filter(
+        timeZone =>
+          timeZone
+            .toLowerCase()
+            .includes(search)
+      );
+    }
+
+    const data = timeZones
+      .slice(0, limit)
+      .map(timeZone => ({
+        name: timeZone,
+        value: timeZone,
+      }));
+
+    return res.status(200).json({
+      success: true,
+      data,
+      count: data.length,
+    });
+  } catch (error) {
+    console.error(
+      "GET TIMEZONES ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Failed to fetch time zones",
     });
   }
 });
@@ -501,6 +569,8 @@ router.get(
 | HEALTH CHECK
 |--------------------------------------------------------------------------
 */
+
+router.get("/latest-blogs", getLatestBlogs);
 
 router.get(
   '/website-health',

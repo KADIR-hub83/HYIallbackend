@@ -11,6 +11,19 @@ const contactForm = require('./routes/contactFormRoutes');
 const careerForm = require('./routes/careerRoutes');
 const mockTest = require('./routes/testRoutes');
 const websiteRoutes = require('./routes/websiteRoutes');
+const leadRoutes = require("./routes/leadRoutes");
+const consultingSolutionRoutes = require(
+  "./routes/consultingSolutionRoutes"
+);
+const dashboardRoutes = require(
+  './routes/dashboardRoutes',
+);
+const industryTargetRoutes = require(
+  "./routes/industryTargetRoutes"
+);
+
+const talentAdminRoutes = require("./routes/talentAdminRoutes");
+
 const auditLoggerMiddleware = require('./middleware/auditLoggerMiddleware');
 const cors = require('cors');
 
@@ -46,6 +59,22 @@ app.use('/api', contactForm);
 app.use('/api', careerForm);
 app.use('/api', mockTest);
 app.use('/api', websiteRoutes);
+app.use('/api', dashboardRoutes);
+app.use("/api", dashboardRoutes);
+app.use("/api", talentAdminRoutes);
+app.use(
+  "/api",
+  leadRoutes
+);
+app.use(
+  "/api",
+  consultingSolutionRoutes
+);
+
+app.use(
+  "/api",
+  industryTargetRoutes
+);
 
 //connect to db
 mongoose
@@ -63,4 +92,4 @@ mongoose
     console.log(error);
   });
 
-process.env;
+
