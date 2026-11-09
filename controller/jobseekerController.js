@@ -4005,36 +4005,64 @@ const deleteUser = async (
 |--------------------------------------------------------------------------
 */
 
-const updateUser = async (
-  req,
-  res,
-) => {
-  try {
-    const {
-      userId,
-    } = req.params;
 
-    let user =
-      await Jobseeker.findById(
-        userId,
-      ).catch(
-        () => null,
-      );
+const updateUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Validate user ID
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required',
+      });
+    }
+
+    // Find Jobseeker by document ID or linked User ID
+    let user = await Jobseeker.findById(userId).catch(() => null);
 
     if (!user) {
-      user =
-        await Jobseeker.findOne({
-          user: userId,
-        });
+      user = await Jobseeker.findOne({ user: userId });
     }
 
     if (!user) {
-      return res
-        .status(404)
-        .json({
-          error:
-            'User not found',
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PARSE MULTIPART FORM DATA
+    |--------------------------------------------------------------------------
+    | Supports both:
+    | 1. Normal JSON req.body
+    | 2. FormData with profile fields inside "data"
+    */
+
+    let body = req.body || {};
+
+    if (typeof body.data === 'string' && body.data.trim()) {
+      try {
+        const parsedData = JSON.parse(body.data);
+
+        if (
+          parsedData &&
+          typeof parsedData === 'object' &&
+          !Array.isArray(parsedData)
+        ) {
+          body = {
+            ...body,
+            ...parsedData,
+          };
+        }
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid profile data JSON',
         });
+      }
     }
 
     const {
@@ -4059,132 +4087,113 @@ const updateUser = async (
       github,
       linkedin,
       portfolio,
+      socialLinks,
 
       phoneNumber,
       preference,
       expectedPrice,
 
+      gender,
+      dateOfBirth,
+      certification,
+      languages,
+      roles,
+
       talentFormIndex,
       talentOnboadCompleted,
       onboardingCompleted,
-    } = req.body;
+    } = body;
 
     /*
     |--------------------------------------------------------------------------
-    | FILES
+    | FILE UPLOADS
     |--------------------------------------------------------------------------
     */
 
-    let profilePictureUrl =
-      user.profilePicture ||
-      null;
+    let profilePictureUrl = user.profilePicture || null;
+    let resumeUrl = user.resume || null;
 
-    let resumeUrl =
-      user.resume ||
-      null;
+    // Profile picture
+    if (req.files?.profilePicture?.length > 0) {
+      const uploaded = await processAndUploadImage(
+        req.files.profilePicture[0],
+        'jobseeker-profile/',
+        makeFullName(
+          firstName || user.firstName,
+          middleName ?? user.middleName,
+          lastName || user.lastName
+        ) || 'talent-profile'
+      );
 
-    if (
-      req.files
-        ?.profilePicture
-        ?.length
-    ) {
-      if (
-        profilePictureUrl
-      ) {
+      const newProfilePicture = Array.isArray(uploaded)
+        ? uploaded[0]
+        : uploaded;
+
+      if (!newProfilePicture) {
+        throw new Error('Profile picture upload failed');
+      }
+
+      profilePictureUrl = newProfilePicture;
+
+      if (user.profilePicture) {
         try {
           await deleteFileFromS3(
-            profilePictureUrl,
-            'jobseeker-profile/',
+            user.profilePicture,
+            'jobseeker-profile/'
           );
         } catch (error) {
           console.warn(
             'Failed to delete old profile picture:',
-            error.message,
+            error.message
           );
         }
       }
-
-      const uploaded =
-        await processAndUploadImage(
-          req.files
-            .profilePicture[0],
-
-          'jobseeker-profile/',
-
-          makeFullName(
-            firstName ||
-              user.firstName,
-
-            middleName ||
-              user.middleName,
-
-            lastName ||
-              user.lastName,
-          ) ||
-            'talent-profile',
-        );
-
-      profilePictureUrl =
-        Array.isArray(
-          uploaded,
-        )
-          ? uploaded[0]
-          : uploaded;
     }
 
-    if (
-      req.files
-        ?.resume
-        ?.length
-    ) {
-      if (resumeUrl) {
+    // Resume
+    if (req.files?.resume?.length > 0) {
+      const uploadedResume = await uploadFileToS3(
+        req.files.resume[0],
+        'jobseeker-resume/'
+      );
+
+      if (!uploadedResume) {
+        throw new Error('Resume upload failed');
+      }
+
+      resumeUrl = uploadedResume;
+
+      if (user.resume) {
         try {
           await deleteFileFromS3(
-            resumeUrl,
-            'jobseeker-resume/',
+            user.resume,
+            'jobseeker-resume/'
           );
         } catch (error) {
           console.warn(
             'Failed to delete old resume:',
-            error.message,
+            error.message
           );
         }
       }
-
-      resumeUrl =
-        await uploadFileToS3(
-          req.files
-            .resume[0],
-
-          'jobseeker-resume/',
-        );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | NORMAL FIELD UPDATES
+    | BASIC PROFILE DETAILS
     |--------------------------------------------------------------------------
     */
 
-    if (
-      isProvided(firstName)
-    ) {
-      user.firstName =
-        firstName;
+    if (isProvided(firstName)) {
+      user.firstName = firstName;
     }
 
-    if (
-      isProvided(middleName)
-    ) {
-      user.middleName =
-        middleName || '';
+    if (isProvided(middleName)) {
+      user.middleName = middleName || '';
     }
 
-    if (
-      isProvided(lastName)
-    ) {
-      user.lastName =
-        lastName;
+    if (isProvided(lastName)) {
+      user.lastName = lastName;
     }
 
     if (
@@ -4192,273 +4201,228 @@ const updateUser = async (
       isProvided(middleName) ||
       isProvided(lastName)
     ) {
-      user.fullName =
-        makeFullName(
-          user.firstName,
-          user.middleName,
-          user.lastName,
-        );
-    } else if (
-      isProvided(fullName)
-    ) {
-      user.fullName =
-        fullName;
+      user.fullName = makeFullName(
+        user.firstName,
+        user.middleName,
+        user.lastName
+      );
+    } else if (isProvided(fullName)) {
+      user.fullName = fullName;
     }
 
+    // Summary
     if (
-      isProvided(
-        profileSummary,
-      ) ||
+      isProvided(profileSummary) ||
       isProvided(summary)
     ) {
-      const finalSummary =
-        profileSummary ??
-        summary ??
-        '';
+      const finalSummary = profileSummary ?? summary ?? '';
 
-      user.summary =
-        finalSummary;
-
-      user.profileSummary =
-        finalSummary;
+      user.summary = finalSummary;
+      user.profileSummary = finalSummary;
     }
 
-    if (
-      isProvided(country)
-    ) {
-      user.country =
-        country;
-    }
-
-    if (
-      isProvided(city)
-    ) {
-      user.city =
-        city;
-    }
-
-    if (
-      isProvided(location)
-    ) {
-      const parsed =
-        parseIfJson(
-          location,
-        );
-
-      if (
-        Array.isArray(
-          parsed,
-        )
-      ) {
-        user.location =
-          parsed;
-      }
-    }
-
-    if (
-      isProvided(
-        technicalSkills,
-      )
-    ) {
-      user.technicalSkills =
-        normalizeTechnicalSkills(
-          technicalSkills,
-        );
-    }
-
-    if (
-      isProvided(
-        otherSkills,
-      )
-    ) {
-      user.otherSkills =
-        normalizeOtherSkills(
-          otherSkills,
-        );
-    }
-
-    if (
-      isProvided(
-        experience,
-      )
-    ) {
-      user.experience =
-        normalizeExperience(
-          experience,
-        );
-    }
-
-    if (
-      isProvided(projects)
-    ) {
-      user.projects =
-        normalizeProjects(
-          projects,
-        );
-    }
-
-    if (
-      isProvided(education)
-    ) {
-      user.education =
-        normalizeEducation(
-          education,
-          req.body,
-        );
-    }
-
-    if (
-      isProvided(github)
-    ) {
-      user.github =
-        github;
-    }
-
-    if (
-      isProvided(linkedin)
-    ) {
-      user.linkedin =
-        linkedin;
-    }
-
-    if (
-      isProvided(portfolio)
-    ) {
-      user.portfolio =
-        portfolio;
-    }
-
-    if (
-      isProvided(
-        phoneNumber,
-      )
-    ) {
+    // Contact details
+    if (isProvided(phoneNumber)) {
       user.phoneNumber =
-        phoneNumber === ''
-          ? ''
-          : String(
-              phoneNumber,
-            );
+        phoneNumber === '' ? '' : String(phoneNumber);
     }
 
-    const normalizedPreference =
-      normalizePreference(
-        preference,
-      );
-
-    if (
-      normalizedPreference
-    ) {
-      user.preference =
-        normalizedPreference;
+    if (isProvided(country)) {
+      user.country = country;
     }
 
-    if (
-      isProvided(
-        expectedPrice,
-      )
-    ) {
-      const parsed =
-        parseIfJson(
-          expectedPrice,
-        );
+    if (isProvided(city)) {
+      user.city = city;
+    }
 
-      if (
-        Array.isArray(
-          parsed,
-        )
+    if (isProvided(gender)) {
+      user.gender = gender;
+    }
+
+    if (isProvided(dateOfBirth)) {
+      user.dateOfBirth = dateOfBirth;
+    }
+
+    // Location
+    if (isProvided(location)) {
+      const parsedLocation = parseIfJson(location);
+
+      if (Array.isArray(parsedLocation)) {
+        user.location = parsedLocation;
+      } else if (
+        parsedLocation &&
+        typeof parsedLocation === 'object'
       ) {
-        user.expectedPrice =
-          parsed;
+        user.location = parsedLocation;
       }
     }
 
-    if (
-      isProvided(
-        talentFormIndex,
-      )
-    ) {
-      user.talentFormIndex =
-        String(
-          talentFormIndex,
-        );
+    /*
+    |--------------------------------------------------------------------------
+    | SKILLS
+    |--------------------------------------------------------------------------
+    */
+
+    if (isProvided(technicalSkills)) {
+      user.technicalSkills =
+        normalizeTechnicalSkills(technicalSkills);
     }
 
-    if (
-      isProvided(
-        talentOnboadCompleted,
-      )
-    ) {
-      const completed =
-        toBoolean(
-          talentOnboadCompleted,
-        );
-
-      user.talentOnboadCompleted =
-        completed;
-
-      user.onboardingCompleted =
-        completed;
-    } else if (
-      isProvided(
-        onboardingCompleted,
-      )
-    ) {
-      const completed =
-        toBoolean(
-          onboardingCompleted,
-        );
-
-      user.onboardingCompleted =
-        completed;
-
-      user.talentOnboadCompleted =
-        completed;
+    if (isProvided(otherSkills)) {
+      user.otherSkills =
+        normalizeOtherSkills(otherSkills);
     }
 
-    if (
-      profilePictureUrl
-    ) {
-      user.profilePicture =
-        profilePictureUrl;
+    /*
+    |--------------------------------------------------------------------------
+    | EXPERIENCE, PROJECTS AND EDUCATION
+    |--------------------------------------------------------------------------
+    */
+
+    if (isProvided(experience)) {
+      user.experience =
+        normalizeExperience(experience);
+    }
+
+    if (isProvided(projects)) {
+      user.projects =
+        normalizeProjects(projects);
+    }
+
+    if (isProvided(education)) {
+      user.education =
+        normalizeEducation(education, body);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CERTIFICATIONS, LANGUAGES AND ROLES
+    |--------------------------------------------------------------------------
+    */
+
+    if (isProvided(certification)) {
+      user.certification = parseIfJson(certification);
+    }
+
+    if (isProvided(languages)) {
+      user.languages = parseIfJson(languages);
+    }
+
+    if (isProvided(roles)) {
+      user.roles = parseIfJson(roles);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SOCIAL LINKS
+    |--------------------------------------------------------------------------
+    */
+
+    if (isProvided(github)) {
+      user.github = github;
+    }
+
+    if (isProvided(linkedin)) {
+      user.linkedin = linkedin;
+    }
+
+    if (isProvided(portfolio)) {
+      user.portfolio = portfolio;
+    }
+
+    if (isProvided(socialLinks)) {
+      user.socialLinks = parseIfJson(socialLinks);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PREFERENCES AND EXPECTED PRICE
+    |--------------------------------------------------------------------------
+    */
+
+    if (isProvided(preference)) {
+      const normalizedPreference =
+        normalizePreference(preference);
+
+      if (normalizedPreference !== undefined) {
+        user.preference = normalizedPreference;
+      }
+    }
+
+    if (isProvided(expectedPrice)) {
+      const parsedPrice = parseIfJson(expectedPrice);
+
+      if (Array.isArray(parsedPrice)) {
+        user.expectedPrice = parsedPrice;
+      } else if (
+        parsedPrice &&
+        typeof parsedPrice === 'object'
+      ) {
+        user.expectedPrice = parsedPrice;
+      }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ONBOARDING STATUS
+    |--------------------------------------------------------------------------
+    */
+
+    if (isProvided(talentFormIndex)) {
+      user.talentFormIndex = String(talentFormIndex);
+    }
+
+    if (isProvided(talentOnboadCompleted)) {
+      const completed = toBoolean(talentOnboadCompleted);
+
+      user.talentOnboadCompleted = completed;
+      user.onboardingCompleted = completed;
+    } else if (isProvided(onboardingCompleted)) {
+      const completed = toBoolean(onboardingCompleted);
+
+      user.onboardingCompleted = completed;
+      user.talentOnboadCompleted = completed;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SAVE FILE URLS
+    |--------------------------------------------------------------------------
+    */
+
+    if (profilePictureUrl) {
+      user.profilePicture = profilePictureUrl;
     }
 
     if (resumeUrl) {
-      user.resume =
-        resumeUrl;
+      user.resume = resumeUrl;
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SAVE DATABASE
+    |--------------------------------------------------------------------------
+    */
 
     await user.save();
 
-    return res
-      .status(200)
-      .json({
-        success: true,
+    return res.status(200).json({
+      success: true,
+      message: 'User updated successfully',
+      user,
+    });
 
-        message:
-          'User updated successfully',
-
-        user,
-      });
   } catch (error) {
-    console.error(
-      'UPDATE USER ERROR:',
-      error,
-    );
+    console.error('UPDATE USER ERROR:', error);
 
-    return res
-      .status(500)
-      .json({
-        success: false,
-
-        error:
-          'Server error',
-
-        details:
-          error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update user profile',
+      error: error.message,
+    });
   }
 };
+
 
 /*
 |--------------------------------------------------------------------------
